@@ -2,6 +2,7 @@
 import { createClient } from "@/lib/supabase/server"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
+import { UserPhoneEdit } from "@/components/user-phone-edit"
 
 export default async function TeamsPage() {
     const supabase = await createClient()
@@ -34,13 +35,13 @@ export default async function TeamsPage() {
                     <h2 className="text-lg font-medium">Members</h2>
                     <div className="grid gap-2">
                         {users?.map(user => (
-                            <div key={user.id} className="p-3 border rounded-md flex justify-between items-center">
-                                <div>
-                                    <div className="font-medium">{user.name}</div>
-                                    <div className="text-xs text-muted-foreground">{user.role}</div>
-                                </div>
-                                <Badge variant="secondary">{user.message_handle || 'No Phone'}</Badge>
-                            </div>
+                            <UserPhoneEdit
+                                key={user.id}
+                                userId={user.id}
+                                initialPhone={user.message_handle}
+                                name={user.name}
+                                role={user.role}
+                            />
                         ))}
                     </div>
                 </div>

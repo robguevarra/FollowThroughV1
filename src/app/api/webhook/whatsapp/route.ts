@@ -36,11 +36,19 @@ export async function GET(req: NextRequest) {
  * Receives webhook notifications from WhatsApp Cloud API
  */
 export async function POST(req: NextRequest) {
+    console.log('[Webhook] POST request received');
     const supabase = await createClient()
 
     try {
         // Parse WhatsApp webhook payload
         const payload: WhatsAppWebhookPayload = await req.json()
+
+        // RAW LOGGING for Debugging
+        await supabase.from('audit_logs').insert({
+            action: 'WEBHOOK_RAW',
+            details: payload as any, // Cast to any to avoid strict type checks on Json
+            task_id: null
+        })
 
         // Validate payload structure
         if (payload.object !== 'whatsapp_business_account') {

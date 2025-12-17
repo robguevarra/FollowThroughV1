@@ -26,7 +26,8 @@ export async function createTask(formData: FormData) {
 
     // FAILSAFE for V1 Pilot without Auth: find the 'admin' user from our seed.
     if (!creatorId) {
-        const { data: adminUser } = await supabase.from('users').select('id').eq('role', 'admin').single()
+        // Use maybeSingle to avoid error if 0 or >1 rows 
+        const { data: adminUser } = await supabase.from('users').select('id').eq('role', 'admin').limit(1).maybeSingle()
         creatorId = adminUser?.id
     }
 
