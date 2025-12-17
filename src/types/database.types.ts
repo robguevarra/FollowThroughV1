@@ -7,8 +7,67 @@ export type Json =
     | Json[]
 
 export type Database = {
+    // Allows to automatically instantiate createClient with right options
+    // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
+    __InternalSupabase: {
+        PostgrestVersion: "13.0.5"
+    }
     public: {
         Tables: {
+            ai_settings: {
+                Row: {
+                    created_at: string | null
+                    followup_frequency: Database["public"]["Enums"]["ai_frequency"] | null
+                    include_weekends: boolean | null
+                    last_active_at: string | null
+                    optimize_costs: boolean | null
+                    personality: Database["public"]["Enums"]["ai_personality"] | null
+                    timezone: string | null
+                    updated_at: string | null
+                    user_id: string
+                    work_hours_end: string | null
+                    work_hours_start: string | null
+                }
+                Insert: {
+                    created_at?: string | null
+                    followup_frequency?:
+                    | Database["public"]["Enums"]["ai_frequency"]
+                    | null
+                    include_weekends?: boolean | null
+                    last_active_at?: string | null
+                    optimize_costs?: boolean | null
+                    personality?: Database["public"]["Enums"]["ai_personality"] | null
+                    timezone?: string | null
+                    updated_at?: string | null
+                    user_id: string
+                    work_hours_end?: string | null
+                    work_hours_start?: string | null
+                }
+                Update: {
+                    created_at?: string | null
+                    followup_frequency?:
+                    | Database["public"]["Enums"]["ai_frequency"]
+                    | null
+                    include_weekends?: boolean | null
+                    last_active_at?: string | null
+                    optimize_costs?: boolean | null
+                    personality?: Database["public"]["Enums"]["ai_personality"] | null
+                    timezone?: string | null
+                    updated_at?: string | null
+                    user_id?: string
+                    work_hours_end?: string | null
+                    work_hours_start?: string | null
+                }
+                Relationships: [
+                    {
+                        foreignKeyName: "ai_settings_user_id_fkey"
+                        columns: ["user_id"]
+                        isOneToOne: true
+                        referencedRelation: "users"
+                        referencedColumns: ["id"]
+                    },
+                ]
+            }
             audit_logs: {
                 Row: {
                     action: string
@@ -224,8 +283,15 @@ export type Database = {
             [_ in never]: never
         }
         Enums: {
+            ai_frequency: "aggressive" | "balanced" | "relaxed"
+            ai_personality: "professional" | "friendly" | "strict"
             message_direction: "inbound" | "outbound"
-            task_status: "pending" | "confirmed" | "blocked" | "at_risk" | "completed"
+            task_status:
+            | "pending"
+            | "confirmed"
+            | "blocked"
+            | "at_risk"
+            | "completed"
             user_role: "admin" | "leader" | "staff"
         }
         CompositeTypes: {

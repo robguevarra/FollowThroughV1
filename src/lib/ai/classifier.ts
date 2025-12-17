@@ -1,15 +1,19 @@
 
 import { Tables } from "@/types/database.types";
 
-export type AIIntent = 'CONFIRM' | 'BLOCK' | 'DONE' | 'PROGRESS' | 'UNCLEAR';
+export type AIIntent = 'CONFIRM' | 'BLOCK' | 'DONE' | 'PROGRESS' | 'UNCLEAR' | 'QUERY' | 'RESCHEDULE' | 'STOP' | 'AMBIGUOUS';
 
 export interface AIClassification {
     intent: AIIntent;
     reason?: string;
+    // For Reschedule
+    new_deadline?: string;
+    // For Ambiguity
+    task_candidates?: string[];
     confidence: number;
 }
 
-export async function classifyMessage(content: string, taskContext: Tables<'tasks'>): Promise<AIClassification> {
+export async function classifyMessage(content: string, tasks: Tables<'tasks'>[]): Promise<AIClassification> {
     const apiKey = process.env.DEEPSEEK_API_KEY;
 
     if (!apiKey) {
@@ -18,22 +22,31 @@ export async function classifyMessage(content: string, taskContext: Tables<'task
     }
 
     try {
+        const taskList = tasks.map(t => `- "${t.title}" (Status: ${t.status}, Due: ${t.deadline})`).join('\n');
+
         const systemPrompt = `
 You are an AI assistant managing task execution.
-Current Task: "${taskContext.title}" (Status: ${taskContext.status})
+User has the following active tasks:
+${taskList}
+
 User Message: "${content}"
 
 Your goal is to classify the user's intent into one of these categories:
-- CONFIRM: User accepts the task or confirms they are working on it (e.g., "OK", "On it", "Will do").
-- BLOCK: User is stuck or cannot proceed (e.g., "I need help", "Wait", "Blocker").
-- DONE: User has completed the task (e.g., "Finished", "Done", "Completed").
-- PROGRESS: User is providing an update but not done yet (e.g., "Halfway there").
-- UNCLEAR: Message is unrelated or ambiguous.
+- CONFIRM: User accepts a task or confirms they are working on it.
+- BLOCK: User is stuck (e.g., "I need help", "Wait", "Blocker").
+- DONE: User has completed a task.
+- PROGRESS: User is providing an update but not done yet.
+- QUERY: User is asking about their tasks or schedule.
+- RESCHEDULE: User wants to change a deadline.
+- STOP: User wants to stop the AI (e.g. "STOP", "PAUSE", "SHUT UP").
+- AMBIGUOUS: User intent is clear (e.g. "Done") but it's unclear WHICH task they refer to (if multiple are active).
+- UNCLEAR: Message is unrelated.
 
 Return a JSON object with:
-- "intent": One of the categories above.
-- "reason": A brief explanation or extracted blocker reason (if intent is BLOCK).
-- "confidence": A number between 0 and 1.
+- "intent": The category.
+- "reason": Explanation or extracted data.
+- "new_deadline": ISO string if intent is RESCHEDULE (future time).
+- "confidence": 0-1.
 `;
 
         const response = await fetch("https://api.deepseek.com/chat/completions", {
@@ -63,6 +76,7 @@ Return a JSON object with:
         return {
             intent: (result.intent as AIIntent) || 'UNCLEAR',
             reason: result.reason,
+            new_deadline: result.new_deadline,
             confidence: result.confidence || 0.5
         };
 
@@ -74,14 +88,22 @@ Return a JSON object with:
 
 function heuristicClassify(content: string): AIClassification {
     const lower = content.toLowerCase();
-    if (lower.includes('done') || lower.includes('finished') || lower.includes('complete')) {
-        return { intent: 'DONE', confidence: 0.9 };
+
+    if (lower === 'stop' || lower === 'pause') {
+        return { intent: 'STOP', confidence: 1.0 };
     }
-    if (lower.includes('stuck') || lower.includes('block') || lower.includes('wait') || lower.includes("can't")) {
+    if (lower.includes('done') || lower.includes('finished') || lower.includes('complete')) {
+        return { intent: 'DONE', confidence: 0.8 };
+    }
+    if (lower.includes('stuck') || lower.includes('block') || lower.includes("can't")) {
         return { intent: 'BLOCK', confidence: 0.8, reason: content };
     }
-    if (lower.includes('ok') || lower.includes('got it') || lower.includes('sure') || lower.includes('will do')) {
-        return { intent: 'CONFIRM', confidence: 0.9 };
+    if (lower.includes('what') && lower.includes('task')) {
+        return { intent: 'QUERY', confidence: 0.8 };
     }
+    if (lower.includes('later') || lower.includes('tomorrow') || lower.includes('reschedule')) {
+        return { intent: 'RESCHEDULE', confidence: 0.7 };
+    }
+
     return { intent: 'UNCLEAR', confidence: 0.5 };
 }

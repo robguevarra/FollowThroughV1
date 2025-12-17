@@ -52,7 +52,7 @@ export async function createTask(formData: FormData) {
     const { data: assignee } = await supabase.from('users').select('message_handle, name').eq('id', assigneeId).single()
 
     if (assignee && assignee.message_handle) {
-        const message = `Hi ${assignee.name}, you have a new task: "${title}". Due by ${deadlineStr}. Reply "OK" to confirm.`
+        const message = `Hey ${assignee.name}, just assigned you a new task: "${title}". It's due by ${deadlineStr}. Let me know if you're good with this?`
         await sendWhatsAppMessage(assignee.message_handle, message, task.id)
 
         // Log event

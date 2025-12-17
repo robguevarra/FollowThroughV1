@@ -1,7 +1,7 @@
 
 "use client"
 
-import { Calendar, CheckSquare, Users, Activity, LayoutDashboard } from "lucide-react"
+import { Calendar, CheckSquare, Users, Activity, LayoutDashboard, Settings } from "lucide-react"
 import {
     Sidebar,
     SidebarContent,
@@ -34,6 +34,11 @@ const items = [
         title: "Teams",
         url: "/teams",
         icon: Users,
+    },
+    {
+        title: "Settings",
+        url: "/settings/ai",
+        icon: Settings,
     },
 ]
 

@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server"
-import { classifyMessage } from "@/lib/ai/classifier"
+import { AIEngine } from "@/lib/ai/engine"
 import { NextRequest, NextResponse } from "next/server"
 import type { WhatsAppWebhookPayload, WhatsAppMessage } from "@/types/whatsapp.types"
 
@@ -127,83 +127,23 @@ async function processIncomingMessage(message: WhatsAppMessage, supabase: any) {
         return
     }
 
-    // 2. Find Active Task for User
-    // Get the latest non-completed task
-    const { data: task } = await supabase
-        .from('tasks')
-        .select('*')
-        .eq('assignee_id', user.id)
-        .neq('status', 'completed')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single()
-
-    if (!task) {
-        console.log(`[Webhook] No active task found for user ${user.name}`)
-        // Log message without task context
-        await supabase.from('audit_logs').insert({
-            action: 'MSG_NO_TASK',
-            task_id: null,
-            details: { userId: user.id, from, body, messageId }
-        })
-        return
-    }
-
-    // 3. Log incoming message to messages table
+    // 2. Log incoming message to messages table (Inbound)
+    // We don't have a task_id yet (Engine determines it), passing null for now?
+    // Or we should let Engine log it after finding the task?
+    // Let's log it here as 'Received' without task link, or try to link later.
+    // For now, simple log.
     await supabase.from('messages').insert({
-        task_id: task.id,
+        task_id: null,
         user_id: user.id,
         direction: 'inbound',
         content: body,
         status: 'received'
     })
 
-    // 4. AI Classification
-    const result = await classifyMessage(body, task)
-
-    // 5. Update Task State based on AI classification
-    let newStatus = task.status
-    let auditAction = 'MSG_RECEIVED'
-
-    if (result.intent === 'CONFIRM' && task.status === 'pending') {
-        newStatus = 'confirmed'
-        auditAction = 'TASK_CONFIRMED'
-    } else if (result.intent === 'BLOCK') {
-        newStatus = 'blocked'
-        auditAction = 'TASK_BLOCKED'
-        // Update blocker reason
-        await supabase.from('tasks').update({ blocker_reason: result.reason }).eq('id', task.id)
-    } else if (result.intent === 'DONE') {
-        newStatus = 'completed'
-        auditAction = 'TASK_COMPLETED'
-    }
-
-    // 6. Update task status if changed
-    if (newStatus !== task.status) {
-        await supabase.from('tasks').update({
-            status: newStatus,
-            updated_at: new Date().toISOString()
-        }).eq('id', task.id)
-
-        // Log status change
-        await supabase.from('audit_logs').insert({
-            action: auditAction,
-            task_id: task.id,
-            details: {
-                original_msg: body,
-                ai_intent: result.intent,
-                reason: result.reason,
-                messageId
-            }
-        })
-
-        console.log(`[Webhook] Task ${task.id} status updated: ${task.status} → ${newStatus}`)
-    } else {
-        // Just log message receipt
-        await supabase.from('audit_logs').insert({
-            action: 'MSG_RECEIVED_INFO',
-            task_id: task.id,
-            details: { body, intent: result.intent, messageId }
-        })
+    // 3. Delegate to AI Engine
+    try {
+        await AIEngine.processMessage(user.id, body, messageId);
+    } catch (err) {
+        console.error('[Webhook] AI Engine Error:', err);
     }
 }

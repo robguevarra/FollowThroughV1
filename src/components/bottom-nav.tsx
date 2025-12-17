@@ -3,7 +3,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { Calendar, CheckSquare, Users, Activity, LayoutDashboard } from "lucide-react"
+import { Calendar, CheckSquare, Users, Activity, LayoutDashboard, Settings } from "lucide-react"
 
 export function BottomNav() {
     const pathname = usePathname()
@@ -36,6 +36,11 @@ export function BottomNav() {
             title: "Teams",
             url: "/teams",
             icon: Users,
+        },
+        {
+            title: "Settings",
+            url: "/settings/ai",
+            icon: Settings,
         }
     ]
 
