@@ -1,4 +1,5 @@
 import { Tables } from "@/types/database.types";
+import { AIIntent } from "@/types/ai.types";
 
 type Personality = 'professional' | 'friendly' | 'strict';
 
@@ -7,12 +8,14 @@ interface ReplyContext {
     task?: Tables<'tasks'>;
     intent: string;
     data?: any; // Extra data like "new_deadline" or "blocker_reason"
+    allTasks?: Tables<'tasks'>[];
+    history?: { role: 'user' | 'assistant', content: string }[];
 }
 
 const SYSTEM_PROMPTS: Record<Personality, string> = {
-    professional: `You are a highly efficient, professional project manager. You value brevity and clarity. You do not use emojis unless necessary. Your goal is to unblock the user and ensure delivery.`,
-    friendly: `You are a supportive and enthusiastic accountability partner! 🚀 You use emojis, celebrate small wins, and encourage the user. You are firm but kind.`,
-    strict: `You are a strict, no-nonsense commander. You demand results. You do not tolerate excuses. You use short, imperative sentences. Time is money.`
+    professional: `You are a highly efficient, professional project manager. You value brevity and clarity. You avoid emojis. Your goal is to unblock the user and ensure delivery.`,
+    friendly: `You are a supportive and enthusiastic accountability partner! 🚀 You use emojis sparingly to encourage. You are firm but kind.`,
+    strict: `You are a direct, results-oriented manager. You value efficiency. You do not accept vague answers. Keep it short.`
 };
 
 export async function generateReply(
@@ -23,7 +26,7 @@ export async function generateReply(
     const systemPrompt = SYSTEM_PROMPTS[personality];
 
     if (!apiKey) {
-        return fallbackReply(personality, context.intent);
+        return fallbackReply(personality, context.intent as AIIntent);
     }
 
     const userPrompt = `
@@ -32,6 +35,9 @@ export async function generateReply(
     - Task: ${context.task?.title || "General"} (Status: ${context.task?.status})
     - Intent Detected: ${context.intent}
     - Data: ${JSON.stringify(context.data)}
+    - Active Tasks: ${context.allTasks?.map(t => `${t.title} (Due: ${t.deadline})`).join(', ') || "None"}
+    - Recent Conversation:
+    ${context.history?.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n') || "None"}
 
     Generate a WhatsApp reply (max 2 sentences) based on the detection.
     If the intent is DONE, celebrate/acknowledge.
@@ -65,16 +71,16 @@ export async function generateReply(
 
     } catch (error) {
         console.error("AI Generation Failed:", error);
-        return fallbackReply(personality, context.intent);
+        return fallbackReply(personality, context.intent as AIIntent);
     }
 }
 
-function fallbackReply(personality: Personality, intent: string): string {
+function fallbackReply(personality: Personality, intent: AIIntent): string {
     if (intent === 'DONE') {
-        return personality === 'strict' ? "Noted. Next task." : "Great job! Task marked complete. 🎉";
+        return personality === 'friendly' ? "Great job! Task marked complete. 🎉" : "Noted. Task completed.";
     }
     if (intent === 'BLOCK') {
-        return personality === 'strict' ? "Fix it. Now." : "Understood. What's the blocker?";
+        return personality === 'friendly' ? "Oh no! What's blocking you?" : "Understood. Please provide details on the blocker.";
     }
-    return "Got it.";
+    return "Received. Will update the records.";
 }

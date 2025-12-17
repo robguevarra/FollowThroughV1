@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Loader2 } from "lucide-react"
-import type { AIActionPlan } from "@/lib/ai/engine"
+import type { AIActionPlan } from "@/types/ai.types"
 
 interface UserOption {
     id: string;
@@ -19,155 +19,168 @@ interface UserOption {
 
 export function SimulatorForm({ users }: { users: UserOption[] }) {
     const [selectedUser, setSelectedUser] = useState<string>(users[0]?.id || "")
-    const [message, setMessage] = useState("")
+    const [history, setHistory] = useState<{ role: 'user' | 'assistant' | 'system', content: string, meta?: any }[]>([])
+    const [logs, setLogs] = useState<{ type: string, description: string, time: string }[]>([])
+    const [input, setInput] = useState("")
     const [overrideTime, setOverrideTime] = useState("")
     const [loading, setLoading] = useState(false)
-    const [result, setResult] = useState<AIActionPlan | null>(null)
-    const [error, setError] = useState<string | null>(null)
 
-    async function handleSimulate() {
-        if (!selectedUser) return;
-        setLoading(true)
-        setResult(null)
-        setError(null)
+    async function handleSend() {
+        if (!selectedUser || !input.trim()) return;
 
-        // Ensure overrideTime is full ISO if possible, or handle in action
-        // Input type="datetime-local" returns "YYYY-MM-DDTHH:mm"
-        const response = await simulateMessage(selectedUser, message, overrideTime || undefined)
+        const userMsg = input;
+        setInput(""); // Clear input early
+        setLoading(true);
+
+        // Add User Message to History
+        setHistory(prev => [...prev, { role: 'user', content: userMsg }]);
+
+        // Call Action
+        // Filter history to only User/Assistant for context
+        const contextHistory = history.filter(m => m.role !== 'system').map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }));
+
+        const response = await simulateMessage(selectedUser, userMsg, overrideTime || undefined, contextHistory)
 
         if ('error' in response) {
-            setError(response.error as string)
+            setHistory(prev => [...prev, { role: 'system', content: `Error: ${response.error}` }]);
         } else {
-            setResult(response as AIActionPlan)
+            const plan = response as AIActionPlan;
+
+            // Add Assistant Reply
+            if (plan.reply) {
+                setHistory(prev => [...prev, { role: 'assistant', content: plan.reply!, meta: plan.classification }]);
+            } else {
+                setHistory(prev => [...prev, { role: 'system', content: `(No Reply: ${plan.skipReplyReason})`, meta: plan.classification }]);
+            }
+
+            // Append new logs
+            const timestamp = new Date().toLocaleTimeString();
+            const newLogs = plan.events.map(e => ({
+                type: e.type,
+                description: e.description,
+                time: timestamp
+            }));
+            setLogs(prev => [...newLogs, ...prev]); // Newest first
         }
         setLoading(false)
     }
 
     return (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            <div className="space-y-6">
-                <Card>
-                    <CardHeader>
-                        <CardTitle>Simulation Inputs</CardTitle>
-                        <CardDescription>Mock an incoming WhatsApp message.</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                        <div className="space-y-2">
-                            <label className="text-sm font-medium">Select User</label>
-                            <Select value={selectedUser} onValueChange={setSelectedUser}>
-                                <SelectTrigger>
-                                    <SelectValue placeholder="Select a user" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {users.map(u => (
-                                        <SelectItem key={u.id} value={u.id}>
-                                            {u.name} ({u.message_handle || 'No Phone'})
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-h-[calc(100vh-200px)] h-full">
+            {/* Chat Column */}
+            <Card className="flex flex-col h-full min-h-[500px] md:col-span-2">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4 border-b">
+                    <div className="flex flex-col">
+                        <CardTitle>Conversation Simulator</CardTitle>
+                        <CardDescription>Chat with the Phantom Manager.</CardDescription>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <Select value={selectedUser} onValueChange={setSelectedUser}>
+                            <SelectTrigger className="w-[200px]">
+                                <SelectValue placeholder="Select User" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {users.map(u => (
+                                    <SelectItem key={u.id} value={u.id}>{u.name}</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                        <Input
+                            type="datetime-local"
+                            className="w-[180px]"
+                            value={overrideTime}
+                            onChange={(e) => setOverrideTime(e.target.value)}
+                        />
+                    </div>
+                </CardHeader>
+
+                <CardContent className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/50">
+                    {history.length === 0 && (
+                        <div className="h-full flex items-center justify-center text-muted-foreground text-sm italic">
+                            Select a user and start chatting to test the AI.
                         </div>
+                    )}
 
-                        <div className="space-y-2">
-                            <label className="text-sm font-medium">Message Content</label>
-                            <Textarea
-                                placeholder="I'm stuck on the report..."
-                                value={message}
-                                onChange={(e) => setMessage(e.target.value)}
-                                rows={4}
-                            />
-                        </div>
-
-                        <div className="space-y-2">
-                            <label className="text-sm font-medium">Time Override (Optional)</label>
-                            <Input
-                                type="datetime-local"
-                                value={overrideTime}
-                                onChange={(e) => setOverrideTime(e.target.value)}
-                            />
-                            <p className="text-xs text-muted-foreground">
-                                Leave blank to use current server time.
-                            </p>
-                        </div>
-
-                        <Button onClick={handleSimulate} disabled={loading || !selectedUser || !message} className="w-full">
-                            {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                            Simulate Webhook
-                        </Button>
-
-                        {error && (
-                            <div className="p-3 bg-destructive/10 text-destructive rounded-md text-sm">
-                                {error}
-                            </div>
-                        )}
-                    </CardContent>
-                </Card>
-            </div>
-
-            <div className="space-y-6">
-                <Card className="h-full">
-                    <CardHeader>
-                        <CardTitle>AI Decision Analysis</CardTitle>
-                        <CardDescription>What the AI would do.</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                        {result ? (
-                            <div className="space-y-6">
-                                <div>
-                                    <h3 className="text-sm font-medium mb-2">Intent Classification</h3>
-                                    <div className="flex items-center gap-2">
-                                        <Badge variant="outline" className="text-lg">
-                                            {result.classification.intent}
-                                        </Badge>
-                                        <span className="text-sm text-muted-foreground">
-                                            (Confidence: {Math.round(result.classification.confidence * 100)}%)
-                                        </span>
+                    {history.map((msg, i) => (
+                        <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                            <div className={`max-w-[80%] rounded-lg p-3 ${msg.role === 'user'
+                                ? 'bg-primary text-primary-foreground'
+                                : msg.role === 'system'
+                                    ? 'bg-muted text-muted-foreground text-xs font-mono'
+                                    : 'bg-white border shadow-sm'
+                                }`}>
+                                <div className="text-sm whitespace-pre-wrap">{msg.content}</div>
+                                {msg.meta && msg.role !== 'user' && (
+                                    <div className="mt-2 pt-2 border-t border-slate-100 flex items-center gap-2 text-[10px] text-muted-foreground">
+                                        <Badge variant="secondary" className="text-[10px] h-4 px-1">{msg.meta.intent}</Badge>
+                                        <span>Conf: {(msg.meta.confidence * 100).toFixed(0)}%</span>
                                     </div>
-                                    {result.classification.reason && (
-                                        <p className="text-sm mt-1 bg-muted p-2 rounded">
-                                            {result.classification.reason}
-                                        </p>
-                                    )}
-                                </div>
-
-                                <div>
-                                    <h3 className="text-sm font-medium mb-2 text-green-600">Generated Reply</h3>
-                                    {result.reply ? (
-                                        <div className="bg-green-50 p-3 rounded-md border border-green-200 text-sm">
-                                            {result.reply}
-                                        </div>
-                                    ) : (
-                                        <div className="bg-yellow-50 p-3 rounded-md border border-yellow-200 text-sm text-yellow-800">
-                                            No reply generated.
-                                            {result.skipReplyReason && <div className="font-bold mt-1">Reason: {result.skipReplyReason}</div>}
-                                        </div>
-                                    )}
-                                </div>
-
-                                <div>
-                                    <h3 className="text-sm font-medium mb-2 text-blue-600">Database Updates</h3>
-                                    {result.dbUpdates.length > 0 ? (
-                                        <ul className="space-y-2">
-                                            {result.dbUpdates.map((update, i) => (
-                                                <li key={i} className="text-xs font-mono bg-slate-100 p-2 rounded border">
-                                                    UPDATE {update.table} SET {JSON.stringify(update.data)} WHERE ID = {update.id}
-                                                </li>
-                                            ))}
-                                        </ul>
-                                    ) : (
-                                        <span className="text-sm text-muted-foreground italic">No structure changes.</span>
-                                    )}
-                                </div>
+                                )}
                             </div>
-                        ) : (
-                            <div className="flex flex-col items-center justify-center h-[200px] text-muted-foreground">
-                                <Loader2 className="h-8 w-8 mb-2 opacity-20" />
-                                <p>Run a simulation to see results.</p>
+                        </div>
+                    ))}
+                    {loading && (
+                        <div className="flex justify-start">
+                            <div className="bg-white border shadow-sm rounded-lg p-3">
+                                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                             </div>
-                        )}
-                    </CardContent>
-                </Card>
-            </div>
+                        </div>
+                    )}
+                </CardContent>
+
+                <div className="p-4 border-t bg-background">
+                    <form onSubmit={(e) => { e.preventDefault(); handleSend(); }} className="flex gap-2">
+                        <Textarea
+                            value={input}
+                            onChange={(e) => setInput(e.target.value)}
+                            placeholder="Type a message..."
+                            className="resize-none min-h-[2.5rem] max-h-32"
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' && !e.shiftKey) {
+                                    e.preventDefault();
+                                    handleSend();
+                                }
+                            }}
+                        />
+                        <Button type="submit" disabled={!selectedUser || !input.trim() || loading} size="icon" className="h-[auto]">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4"><line x1="22" x2="11" y1="2" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg>
+                        </Button>
+                    </form>
+                </div>
+            </Card>
+
+            {/* Logs Column */}
+            <Card className="flex flex-col h-full bg-slate-50 border-l">
+                <CardHeader className="pb-3 border-b bg-white">
+                    <CardTitle className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Autopilot Logs</CardTitle>
+                </CardHeader>
+                <CardContent className="flex-1 overflow-y-auto p-0">
+                    {logs.length === 0 ? (
+                        <div className="p-8 text-center text-xs text-muted-foreground">
+                            No events yet.
+                        </div>
+                    ) : (
+                        <div className="divide-y divide-slate-100 bg-white">
+                            {logs.map((log, i) => (
+                                <div key={i} className="p-3 text-sm hover:bg-slate-50 transition-colors">
+                                    <div className="flex items-center justify-between mb-1">
+                                        <Badge variant="outline" className={`text-[10px] h-5 px-1 ${log.type === 'inbound' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                                                log.type === 'outbound' ? 'bg-green-50 text-green-700 border-green-200' :
+                                                    'bg-slate-100 text-slate-600'
+                                            }`}>
+                                            {log.type.toUpperCase()}
+                                        </Badge>
+                                        <span className="text-[10px] text-muted-foreground">{log.time}</span>
+                                    </div>
+                                    <div className="text-slate-700 leading-tight">
+                                        {log.description}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </CardContent>
+            </Card>
         </div>
     )
 }

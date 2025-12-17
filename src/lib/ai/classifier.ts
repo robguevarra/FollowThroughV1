@@ -1,17 +1,5 @@
-
 import { Tables } from "@/types/database.types";
-
-export type AIIntent = 'CONFIRM' | 'BLOCK' | 'DONE' | 'PROGRESS' | 'UNCLEAR' | 'QUERY' | 'RESCHEDULE' | 'STOP' | 'AMBIGUOUS';
-
-export interface AIClassification {
-    intent: AIIntent;
-    reason?: string;
-    // For Reschedule
-    new_deadline?: string;
-    // For Ambiguity
-    task_candidates?: string[];
-    confidence: number;
-}
+import { AIClassification, AIIntent } from "@/types/ai.types";
 
 export async function classifyMessage(content: string, tasks: Tables<'tasks'>[]): Promise<AIClassification> {
     const apiKey = process.env.DEEPSEEK_API_KEY;
@@ -22,7 +10,8 @@ export async function classifyMessage(content: string, tasks: Tables<'tasks'>[])
     }
 
     try {
-        const taskList = tasks.map(t => `- "${t.title}" (Status: ${t.status}, Due: ${t.deadline})`).join('\n');
+        // Include ID for targeting
+        const taskList = tasks.map(t => `[ID: ${t.id}] "${t.title}" (Status: ${t.status}, Due: ${t.deadline})`).join('\n');
 
         const systemPrompt = `
 You are an AI assistant managing task execution.
@@ -46,6 +35,8 @@ Return a JSON object with:
 - "intent": The category.
 - "reason": Explanation or extracted data.
 - "new_deadline": ISO string if intent is RESCHEDULE (future time).
+- "target_task_id": The exact ID of the task the user is referring to, if clear from context.
+- "task_candidates": Array of probable task IDs if AMBIGUOUS.
 - "confidence": 0-1.
 `;
 
@@ -77,6 +68,8 @@ Return a JSON object with:
             intent: (result.intent as AIIntent) || 'UNCLEAR',
             reason: result.reason,
             new_deadline: result.new_deadline,
+            // Map the target_task_id to our candidates if specific
+            task_candidates: result.target_task_id ? [result.target_task_id] : result.task_candidates,
             confidence: result.confidence || 0.5
         };
 
